@@ -11,6 +11,8 @@ mod state;
 use commands::{lite, probe};
 use state::JLinkState;
 
+pub use bundled_jlink::extract_zip;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let default_bin = platform::config().jlink_bin;

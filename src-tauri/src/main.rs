@@ -17,7 +17,7 @@ fn main() {
                 }
                 let zip_path = std::path::PathBuf::from(zip_path);
                 let dst_dir = std::path::PathBuf::from(dst_dir);
-                match winusb_switcher_lite_lib::bundled_jlink::extract_zip(&zip_path, &dst_dir) {
+                match winusb_switcher_lite_lib::extract_zip(&zip_path, &dst_dir) {
                     Ok(()) => std::process::exit(0),
                     Err(e) => {
                         eprintln!("Extraction failed: {}", e);
