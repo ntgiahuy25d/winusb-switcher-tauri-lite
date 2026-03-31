@@ -60,17 +60,28 @@ export default function App() {
 
   if (bootstrap === "pending") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-white p-6">
-        <div
-          className="bootstrap-lite-card max-w-md text-center rounded-lg border border-[#e9ecef] bg-[#f8f9fa] p-6 shadow-sm"
-        >
-          <div className="text-[#495057] font-semibold mb-2">Preparing WinUSB Switcher Lite…</div>
-          <p className="text-[13px] text-[#6c757d] leading-relaxed mb-4">
-            This app ships with bundled SEGGER J-Link software. On first launch it is unpacked to your
-            profile (<code className="text-xs bg-white px-1 py-0.5 rounded">%AppData%\Roaming\SEGGER\JLink_V930a</code>).
-            This step can take a short while; please wait.
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-slate-50 to-white p-8">
+        <div className="bootstrap-lite-card w-full max-w-[420px] rounded-xl border border-slate-200/80 bg-white/90 px-8 py-10 shadow-[0_8px_30px_rgb(0,0,0,0.06)] backdrop-blur-sm">
+          <div className="mx-auto mb-6 h-px w-12 rounded-full bg-gradient-to-r from-transparent via-slate-300 to-transparent" aria-hidden />
+          <h1 className="text-center text-base font-semibold tracking-tight text-slate-800">
+            Initializing WinUSB Switcher Lite
+          </h1>
+          <p className="mt-3 text-center text-[13px] leading-relaxed text-slate-600">
+            A one-time setup is preparing the embedded J-Link components. This usually completes in under a minute.
           </p>
-          <div className="text-[12px] text-[#adb5bd]">Extracting files…</div>
+          <p className="mt-5 text-center text-xs text-slate-500">Please keep this window open.</p>
+          <div className="mt-8 h-1 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Setup in progress">
+            <div className="bootstrap-lite-progress h-full w-2/5 rounded-full bg-slate-500/85" />
+          </div>
+          <style>{`
+            .bootstrap-lite-progress {
+              animation: bootstrapLiteShimmer 1.35s ease-in-out infinite;
+            }
+            @keyframes bootstrapLiteShimmer {
+              0% { transform: translateX(-120%); }
+              100% { transform: translateX(320%); }
+            }
+          `}</style>
         </div>
       </div>
     );
@@ -78,13 +89,19 @@ export default function App() {
 
   if (bootstrap === "error") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-white p-6">
-        <div className="bootstrap-lite-card max-w-md text-center rounded-lg border border-[#ffcccc] bg-[#fff5f5] p-6">
-          <div className="text-[#721c24] font-semibold mb-2">Could not prepare bundled J-Link</div>
-          <p className="text-[13px] text-[#721c24] mb-4 break-words">{bootstrapError}</p>
-          <button type="button" className="btn btn-primary" onClick={() => void runBootstrap()}>
-            Try again
-          </button>
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-slate-50 to-white p-8">
+        <div className="bootstrap-lite-card w-full max-w-[420px] rounded-xl border border-red-200/90 bg-white px-8 py-10 shadow-[0_8px_30px_rgb(0,0,0,0.06)]">
+          <h1 className="text-center text-[15px] font-semibold tracking-tight text-red-900">
+            Setup could not finish
+          </h1>
+          <p className="mt-3 text-center text-[13px] leading-relaxed text-red-800/90 break-words">
+            {bootstrapError}
+          </p>
+          <div className="mt-8 flex justify-center">
+            <button type="button" className="btn btn-primary" onClick={() => void runBootstrap()}>
+              Try again
+            </button>
+          </div>
         </div>
       </div>
     );
