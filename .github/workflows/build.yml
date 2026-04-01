@@ -1,6 +1,6 @@
 # Tag + manual builds that publish one GitHub Release (Electron-style: build matrix → single release job).
 # Does not replace ci.yml (PR / main smoke tests). Settings → Actions → Workflow permissions → Read and write.
-name: Build WinUSB Switcher
+name: Build WinUSB Switcher Lite
 
 on:
   push:

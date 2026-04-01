@@ -1,6 +1,6 @@
 # Cross-platform build smoke test on every push/PR to main.
 # Does NOT create GitHub Releases — see build.yml (runs on v* tags + release job).
-name: CI
+name: CI (WinUSB Switcher Lite)
 
 on:
   push:
