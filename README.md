@@ -30,9 +30,9 @@ Release **installers** are built per OS; each artifact contains **only** the J-L
 3. Commit and push to `main`, then tag and push:
    ```bash
    git checkout main && git pull
-   git tag v1.0.1
+   git tag v1.0.2
    git push origin main
-   git push origin v1.0.1
+   git push origin v1.0.2
    ```
 4. Wait for **Build WinUSB Switcher Lite** → **release**; open the **Releases** tab for assets.
 
