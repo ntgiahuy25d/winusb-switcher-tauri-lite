@@ -80,6 +80,7 @@ pub fn prepend_to_process_path(dir: &str) {
 /// the dynamic linker may still fail with **"Could not open J-Link shared library"** unless the
 /// directory is also on `LD_LIBRARY_PATH` (RPATH/`$ORIGIN` can be insufficient in some layouts).
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 pub fn prepend_ld_library_path(dir: &str) {
     const KEY: &str = "LD_LIBRARY_PATH";
     let current = std::env::var(KEY).unwrap_or_default();

@@ -152,6 +152,28 @@ pub fn extract_zip(zip_path: &Path, dst_dir: &Path) -> AppResult<()> {
             std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
         }
 
+        // Unix zip entries with S_IFLNK mode (0o120000) store the symlink target as the
+        // file content. DEB-derived SEGGER packages use this for libjlinkarm.so -> libjlinkarm.so.9
+        // etc. If we write them as plain files, JLinkExe cannot dlopen the library.
+        #[cfg(unix)]
+        {
+            const S_IFLNK: u32 = 0o120_000;
+            if let Some(mode) = file.unix_mode() {
+                if mode & 0o170_000 == S_IFLNK {
+                    let mut target_buf = Vec::with_capacity(256);
+                    file.read_to_end(&mut target_buf)
+                        .map_err(|e| AppError::Io(e.to_string()))?;
+                    let target = String::from_utf8_lossy(&target_buf).trim().to_string();
+                    // Remove stale entry (regular file or old symlink) before creating.
+                    let _ = std::fs::remove_file(&out_path);
+                    std::os::unix::fs::symlink(&target, &out_path)
+                        .map_err(|e| AppError::Io(format!("symlink {} -> {}: {}", out_path.display(), target, e)))?;
+                    log::debug!("[jlink] symlink {} -> {}", out_path.display(), target);
+                    continue;
+                }
+            }
+        }
+
         let mut out = std::fs::File::create(&out_path).map_err(|e| AppError::Io(e.to_string()))?;
         let mut buf = Vec::with_capacity(file.size().min(1024 * 1024) as usize);
         file.read_to_end(&mut buf)
