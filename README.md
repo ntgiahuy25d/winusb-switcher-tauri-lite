@@ -208,8 +208,20 @@ Workflows live under [`.github/workflows/`](.github/workflows/). Checkout uses *
 ## Troubleshooting
 
 - **Invalid zip / EOCD / LFS pointer** — Install Git LFS, `git lfs pull`, rebuild.
-- **Linux permission denied under `/opt`** — Approve the **pkexec** prompt or install manually with appropriate permissions.
+- **Linux permission denied under `/opt`** — On first run, Lite installs the bundled J-Link under `/opt/SEGGER`. If `/opt` is not writable, you’ll be prompted **once** via **pkexec** to complete extraction + permission fixups.
 - **“J-Link not found” after bootstrap** — Ensure staging ran (use `yarn tauri:dev` / `yarn tauri:build`), and on Linux that `JLinkExe` exists under `/opt/SEGGER` (flat) or `/opt/SEGGER/JLink_V930a` (nested zip) and is executable.
+- **Linux can’t see probes / permission denied opening USB device** — Install SEGGER’s udev rules (recommended). Typical options:
+  - Install SEGGER’s official package for your distro (it usually ships `99-jlink.rules`), or
+  - Copy rules manually (file name varies by distro; example):
+
+```bash
+# Example (adjust if your system uses a different file name/path)
+sudo cp /opt/SEGGER/JLink_V930a/99-jlink.rules /etc/udev/rules.d/99-jlink.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+- **Linux: “Could not open J-Link shared library”** — Ensure you extracted a real SEGGER payload (not a Git LFS pointer) and that the install tree contains valid `libjlinkarm.so*` files/symlinks. If the issue persists, verify system deps (e.g. `libusb-1.0-0`) and run `ldd` on `JLinkExe` to identify missing libraries.
 
 ## License
 

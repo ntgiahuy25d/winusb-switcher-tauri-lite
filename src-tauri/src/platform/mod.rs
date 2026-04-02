@@ -76,22 +76,6 @@ pub fn prepend_to_process_path(dir: &str) {
     }
 }
 
-/// Linux: SEGGER `JLinkExe` loads `libjlinkarm.so` from the install directory. If only `PATH` is set,
-/// the dynamic linker may still fail with **"Could not open J-Link shared library"** unless the
-/// directory is also on `LD_LIBRARY_PATH` (RPATH/`$ORIGIN` can be insufficient in some layouts).
-#[cfg(target_os = "linux")]
-#[allow(dead_code)]
-pub fn prepend_ld_library_path(dir: &str) {
-    const KEY: &str = "LD_LIBRARY_PATH";
-    let current = std::env::var(KEY).unwrap_or_default();
-    if current.split(':').any(|p| !p.is_empty() && p == dir) {
-        return;
-    }
-    let sep = ':';
-    std::env::set_var(KEY, format!("{}{}{}", dir, sep, current));
-    log::info!("[jlink] Prepended {} to {}", dir, KEY);
-}
-
 /// After locating a J-Link install directory, apply PATH (all platforms) and Linux shared-library path.
 pub fn ensure_jlink_runtime_env(install_dir: &str) {
     prepend_to_process_path(install_dir);
