@@ -16,15 +16,11 @@ pub async fn detect_and_scan(
     let status = tokio::task::spawn_blocking(jlink::detect::detect).await?;
 
     if status.installed {
-        let cfg = crate::platform::config();
-        let bin = if jlink::runner::run(cfg.jlink_bin, "Exit\n").is_ok() {
-            cfg.jlink_bin.to_string()
-        } else if let Some(path) = status.path.as_deref() {
-            path.to_string()
-        } else {
-            cfg.jlink_bin.to_string()
-        };
-        state.set(bin);
+        // Always prefer the resolved path from detection (which will point at the bundled J-Link
+        // once bootstrap has prepended the install dir to PATH).
+        if let Some(path) = status.path.as_deref() {
+            state.set(path.to_string());
+        }
     }
 
     let probes = if status.installed {
