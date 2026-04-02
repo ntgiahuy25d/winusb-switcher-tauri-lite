@@ -172,13 +172,36 @@ fn set_exec_bit(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
+/// Linux install root is `/opt/SEGGER`. The zip may unpack either:
+/// - flat: `/opt/SEGGER/JLinkExe`, or
+/// - nested: `/opt/SEGGER/JLink_V930a/JLinkExe` (legacy layout).
 #[cfg(target_os = "linux")]
-pub fn linux_post_extract_fixups(dst_dir: &Path) -> AppResult<()> {
+fn linux_jlink_exe_candidates(dst_root: &Path) -> [PathBuf; 2] {
+    [
+        dst_root.join("JLinkExe"),
+        dst_root.join(BUNDLED_DIR_NAME).join("JLinkExe"),
+    ]
+}
+
+#[cfg(target_os = "linux")]
+fn linux_resolve_jlink_exe(dst_root: &Path) -> Option<PathBuf> {
+    for p in linux_jlink_exe_candidates(dst_root) {
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+pub fn linux_post_extract_fixups(dst_root: &Path) -> AppResult<()> {
     // The DEB-derived folder often loses executable bits when we package/extract via zip.
-    // Ensure at least `JLinkExe` is runnable.
-    let jlink_exe = dst_dir.join("JLinkExe");
-    if jlink_exe.exists() {
-        set_exec_bit(&jlink_exe)?;
+    for p in linux_jlink_exe_candidates(dst_root) {
+        if p.exists() {
+            if let Err(e) = set_exec_bit(&p) {
+                log::warn!("[jlink] chmod {}: {}", p.display(), e);
+            }
+        }
     }
     Ok(())
 }
@@ -245,24 +268,23 @@ pub fn ensure_extracted_and_on_path(app: &AppHandle) -> AppResult<PathBuf> {
         .ok_or_else(|| AppError::Internal("Unsupported CPU architecture".to_string()))?;
     let zip_path = bundled_zip_path(app, "linux", arch)?;
 
-    let base = PathBuf::from("/opt/SEGGER");
-    let dst_dir = base.join(BUNDLED_DIR_NAME);
-    let jlink_exe = dst_dir.join("JLinkExe");
+    // Product requirement: extract under `/opt/SEGGER` (not `/opt/SEGGER/JLink_V930a`).
+    // Zip layout may still place a `JLink_V930a/` subfolder inside that tree.
+    let dst_root = PathBuf::from("/opt/SEGGER");
 
-    if !jlink_exe.exists() {
+    if linux_resolve_jlink_exe(&dst_root).is_none() {
         log::info!(
-            "[jlink] Extracting bundled {} from {} to {}",
-            BUNDLED_DIR_NAME,
+            "[jlink] Extracting bundled J-Link from {} to {}",
             zip_path.display(),
-            dst_dir.display()
+            dst_root.display()
         );
 
-        match extract_zip(&zip_path, &dst_dir) {
+        match extract_zip(&zip_path, &dst_root) {
             Ok(()) => {}
             Err(AppError::Io(msg)) => {
                 // Attempt elevation when /opt is not writable.
                 if msg.contains("Permission denied") {
-                    elevate_extract_with_pkexec(&zip_path, &dst_dir)?;
+                    elevate_extract_with_pkexec(&zip_path, &dst_root)?;
                 } else {
                     return Err(AppError::Io(msg));
                 }
@@ -272,20 +294,27 @@ pub fn ensure_extracted_and_on_path(app: &AppHandle) -> AppResult<PathBuf> {
 
         // Ensure executable bits are correct. If we elevated via pkexec, the helper
         // performs these fixups as root.
-        if let Err(e) = linux_post_extract_fixups(&dst_dir) {
+        if let Err(e) = linux_post_extract_fixups(&dst_root) {
             log::warn!("[jlink] Post-extract fixups failed: {}", e);
         }
     }
 
-    if !jlink_exe.exists() {
-        return Err(AppError::Internal(format!(
-            "Bundled J-Link extracted, but JLinkExe not found at {}",
-            jlink_exe.display()
-        )));
-    }
+    let jlink_exe = linux_resolve_jlink_exe(&dst_root).ok_or_else(|| {
+        AppError::Internal(format!(
+            "Bundled J-Link extracted under {}, but JLinkExe not found (expected {} or {})",
+            dst_root.display(),
+            dst_root.join("JLinkExe").display(),
+            dst_root.join(BUNDLED_DIR_NAME).join("JLinkExe").display()
+        ))
+    })?;
 
-    platform::ensure_jlink_runtime_env(&dst_dir.to_string_lossy().to_string());
-    Ok(dst_dir)
+    let install_dir = jlink_exe
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| AppError::Internal("JLinkExe has no parent path".to_string()))?;
+
+    platform::ensure_jlink_runtime_env(&install_dir.to_string_lossy().to_string());
+    Ok(install_dir)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]

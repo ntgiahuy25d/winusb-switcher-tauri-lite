@@ -9,7 +9,7 @@ Built with **Rust** (`src-tauri`) and **React + TypeScript** (`src/renderer`).
 | Platform | Bundled J-Link | First-run behavior |
 |----------|----------------|-------------------|
 | **Windows x64** | Windows zip only (installers do **not** include Linux archives) | Unpacks to `%AppData%\Roaming\SEGGER\JLink_V930a` |
-| **Linux x64** | Linux zip only | Unpacks under `/opt/SEGGER/JLink_V930a`; **pkexec** may prompt if elevation is required |
+| **Linux x64** | Linux zip only | Unpacks under **`/opt/SEGGER`** (zip may add a `JLink_V930a/` subfolder); **pkexec** may prompt if elevation is required |
 | **macOS** | 22-byte empty ZIP stub only (build-time; satisfies Tauri’s resource glob) | Bundled J-Link extraction is not implemented for macOS yet — the app cannot use the Lite flow on macOS until a real Darwin payload exists |
 
 Release **installers** are built per OS; each artifact contains **only** the J-Link zip for that target. Canonical zips live in **`src-tauri/jlink-bundles/`** (tracked with **Git LFS**). At dev/build time, **`scripts/stage-jlink-for-build.mjs`** copies the matching zip into **`src-tauri/resources/jlink/`** (gitignored) so Tauri bundles a single payload.
@@ -209,7 +209,7 @@ Workflows live under [`.github/workflows/`](.github/workflows/). Checkout uses *
 
 - **Invalid zip / EOCD / LFS pointer** — Install Git LFS, `git lfs pull`, rebuild.
 - **Linux permission denied under `/opt`** — Approve the **pkexec** prompt or install manually with appropriate permissions.
-- **“J-Link not found” after bootstrap** — Ensure staging ran (use `yarn tauri:dev` / `yarn tauri:build`), and on Linux that `JLinkExe` under `/opt/SEGGER/JLink_V930a` is executable.
+- **“J-Link not found” after bootstrap** — Ensure staging ran (use `yarn tauri:dev` / `yarn tauri:build`), and on Linux that `JLinkExe` exists under `/opt/SEGGER` (flat) or `/opt/SEGGER/JLink_V930a` (nested zip) and is executable.
 
 ## License
 
