@@ -349,6 +349,26 @@ fn elevate_extract_with_pkexec(zip_path: &Path, dst_dir: &Path) -> AppResult<()>
     Ok(())
 }
 
+/// Check whether the current process can write into `dir` (which may not exist yet).
+/// Returns `true` when root access will be required.
+#[cfg(target_os = "linux")]
+fn linux_dst_needs_root(dir: &Path) -> bool {
+    // Walk up to the first existing ancestor and check writability with a probe file.
+    let mut check = dir;
+    loop {
+        if check.exists() {
+            let probe = check.join(".jlink_write_probe");
+            let ok = std::fs::File::create(&probe).is_ok();
+            let _ = std::fs::remove_file(&probe);
+            return !ok;
+        }
+        match check.parent() {
+            Some(p) => check = p,
+            None => return true,
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub fn ensure_extracted_and_on_path(app: &AppHandle) -> AppResult<PathBuf> {
     let arch = BundledArch::from_rust_arch()
@@ -366,23 +386,17 @@ pub fn ensure_extracted_and_on_path(app: &AppHandle) -> AppResult<PathBuf> {
             dst_root.display()
         );
 
-        match extract_zip(&zip_path, &dst_root) {
-            Ok(()) => {}
-            Err(AppError::Io(msg)) => {
-                // Attempt elevation when /opt is not writable.
-                if msg.contains("Permission denied") {
-                    elevate_extract_with_pkexec(&zip_path, &dst_root)?;
-                } else {
-                    return Err(AppError::Io(msg));
-                }
+        if linux_dst_needs_root(&dst_root) {
+            // Single pkexec call: extract + chmod in one privilege elevation → one dialog.
+            log::info!("[jlink] /opt/SEGGER not writable by current user — using pkexec (one prompt)");
+            elevate_extract_with_pkexec(&zip_path, &dst_root)?;
+            // fixups already performed by the pkexec helper; nothing more to do.
+        } else {
+            extract_zip(&zip_path, &dst_root)?;
+            // Fixups needed after user-level extraction (files extracted without +x).
+            if let Err(e) = linux_post_extract_fixups(&dst_root) {
+                log::warn!("[jlink] Post-extract fixups failed: {}", e);
             }
-            Err(e) => return Err(e),
-        }
-
-        // Ensure executable bits are correct. If we elevated via pkexec, the helper
-        // performs these fixups as root.
-        if let Err(e) = linux_post_extract_fixups(&dst_root) {
-            log::warn!("[jlink] Post-extract fixups failed: {}", e);
         }
     }
 
