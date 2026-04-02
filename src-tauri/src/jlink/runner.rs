@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use crate::error::{AppError, AppResult};
 use crate::process::NoWindow;
 
@@ -12,8 +12,19 @@ use crate::process::NoWindow;
 /// responding mid-session (which would otherwise hang detect_and_scan forever).
 const RUNNER_TIMEOUT_SECS: u64 = 15;
 
+/// SEGGER tools are not reliable when multiple JLinkExe processes run concurrently.
+/// Serialize all J-Link CLI invocations within this process to reduce flakiness during refresh/scan/switch.
+fn jlink_run_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 /// Execute JLink with given stdin input, return (stdout, stderr).
 pub fn run(bin: &str, input: &str) -> AppResult<(String, String)> {
+    let _guard = jlink_run_lock()
+        .lock()
+        .map_err(|_| AppError::Internal("J-Link runner lock was poisoned".to_string()))?;
+
     log::debug!("[jlink] Running: {} -NoGUI 1", bin);
     log::debug!("[jlink] Input:\n{}", input);
 
@@ -80,6 +91,20 @@ pub fn run(bin: &str, input: &str) -> AppResult<(String, String)> {
     log::debug!("[jlink] stdout: {}", &stdout[..stdout.len().min(500)]);
     if !stderr.is_empty() {
         log::debug!("[jlink] stderr: {}", &stderr[..stderr.len().min(200)]);
+    }
+
+    // Treat non-zero exit as a failure, even if stdout contains a banner.
+    // This avoids marking J-Link as "installed" when it actually failed to load libraries or connect.
+    if !output.status.success() {
+        let code = output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".to_string());
+        let msg = if stdout.contains("Could not open J-Link shared library") {
+            format!("exit={} (Could not open J-Link shared library)", code)
+        } else if !stderr.trim().is_empty() {
+            format!("exit={} stderr={}", code, stderr.trim())
+        } else {
+            format!("exit={} stdout={}", code, stdout.lines().next().unwrap_or("").trim())
+        };
+        return Err(AppError::JLinkFailed(msg));
     }
 
     Ok((stdout, stderr))
