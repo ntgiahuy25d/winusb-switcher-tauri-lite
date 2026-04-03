@@ -626,9 +626,9 @@ pub fn ensure_extracted_and_on_path(app: &AppHandle) -> AppResult<PathBuf> {
         .ok_or_else(|| AppError::Internal("JLinkExe has no parent path".to_string()))?;
 
     // Udev setup must run even if we did not extract this session (existing /opt tree from older versions).
-    if let Err(e) = linux_ensure_segger_udev_installed(&dst_root) {
-        log::warn!("[jlink] Automatic udev install did not complete: {}", e);
-    }
+    // If the user dismisses the PolicyKit dialog (same as canceling extract pkexec), fail bootstrap so the
+    // UI shows the setup error card with "Try again" instead of a broken dashboard.
+    linux_ensure_segger_udev_installed(&dst_root)?;
 
     platform::ensure_jlink_runtime_env(&install_dir.to_string_lossy().to_string());
     Ok(install_dir)
