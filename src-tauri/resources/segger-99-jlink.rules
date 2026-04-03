@@ -1,0 +1,9 @@
+# SEGGER J-Link — USB access for vendor ID 0x1366
+#
+# Shipped as a fallback with WinUSB Switcher Lite when the bundled J-Link zip does
+# not contain 99-jlink.rules (some minimal archives omit it).
+#
+# For the full rule set matching your exact probe models, use the copy that ships
+# with SEGGER’s Linux installer or from /opt/SEGGER/... after a complete package extract.
+
+SUBSYSTEM=="usb", ATTR{idVendor}=="1366", MODE="0666", TAG+="uaccess"

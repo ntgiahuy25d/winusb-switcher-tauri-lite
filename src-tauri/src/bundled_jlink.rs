@@ -294,7 +294,28 @@ pub fn linux_post_extract_fixups(dst_root: &Path) -> AppResult<()> {
 }
 
 /// SEGGER Linux packages ship `99-jlink.rules` (sometimes `70-jlink.rules`) next to the tools,
-/// or under `ETC/udev/rules.d/` in some tarball layouts.
+/// or under `ETC/udev/rules.d/` in some tarball layouts. Minimal zips may omit rules entirely.
+#[cfg(target_os = "linux")]
+fn linux_find_jlink_rules_in_tree(dir: &Path, max_depth: u32) -> Option<PathBuf> {
+    if max_depth == 0 || !dir.is_dir() {
+        return None;
+    }
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if p.is_file() && name.ends_with(".rules") && name.contains("jlink") {
+            return Some(p);
+        }
+        if p.is_dir() {
+            if let Some(found) = linux_find_jlink_rules_in_tree(&p, max_depth - 1) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(target_os = "linux")]
 fn linux_segger_udev_rules_src(dst_root: &Path) -> Option<PathBuf> {
     let flat_bases = [dst_root.join(BUNDLED_DIR_NAME), dst_root.to_path_buf()];
@@ -312,26 +333,29 @@ fn linux_segger_udev_rules_src(dst_root: &Path) -> Option<PathBuf> {
             }
         }
     }
+    for base in &flat_bases {
+        if let Some(p) = linux_find_jlink_rules_in_tree(base, 12) {
+            return Some(p);
+        }
+    }
     None
 }
 
-/// Install SEGGER udev rules so USB probes are accessible without root (requires write access to `/etc/udev`).
 #[cfg(target_os = "linux")]
-pub fn linux_install_segger_udev_rules_from_src(rules_src: &Path) -> AppResult<()> {
-    use std::process::Command;
+fn embedded_segger_udev_rules_bytes() -> &'static [u8] {
+    include_bytes!("../resources/segger-99-jlink.rules")
+}
 
-    if !rules_src.is_file() {
-        return Err(AppError::Internal(format!(
-            "udev rules file not found: {}",
-            rules_src.display()
-        )));
-    }
+/// Install SEGGER udev rules (requires write access to `/etc/udev` unless running under pkexec).
+#[cfg(target_os = "linux")]
+pub fn linux_install_segger_udev_rules_bytes(content: &[u8], source_label: &str) -> AppResult<()> {
+    use std::process::Command;
 
     let dest = Path::new("/etc/udev/rules.d/99-jlink.rules");
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
     }
-    std::fs::copy(rules_src, dest).map_err(|e| AppError::Io(e.to_string()))?;
+    std::fs::write(dest, content).map_err(|e| AppError::Io(e.to_string()))?;
 
     let s = Command::new("udevadm")
         .args(["control", "--reload-rules"])
@@ -352,22 +376,45 @@ pub fn linux_install_segger_udev_rules_from_src(rules_src: &Path) -> AppResult<(
     }
 
     log::info!(
-        "[jlink] Installed udev rules {} -> {}",
-        rules_src.display(),
+        "[jlink] Installed udev rules ({}) -> {}",
+        source_label,
         dest.display()
     );
     Ok(())
 }
 
-/// After extraction, copy bundled rules into `/etc/udev` when running as root (e.g. pkexec helper).
-/// If no rules file is present in the tree, succeeds without doing anything.
+#[cfg(target_os = "linux")]
+pub fn linux_install_segger_udev_rules_from_src(rules_src: &Path) -> AppResult<()> {
+    if !rules_src.is_file() {
+        return Err(AppError::Internal(format!(
+            "udev rules file not found: {}",
+            rules_src.display()
+        )));
+    }
+    let bytes = std::fs::read(rules_src).map_err(|e| AppError::Io(e.to_string()))?;
+    linux_install_segger_udev_rules_bytes(&bytes, &format!("{}", rules_src.display()))
+}
+
+/// After extraction: install rules from the zip tree, or from an **embedded fallback** if the minimal
+/// archive omitted `99-jlink.rules` (previously caused silent “success” with no `/etc/udev` file).
 #[cfg(target_os = "linux")]
 pub fn linux_try_install_segger_udev_after_extract(dst_root: &Path) -> AppResult<()> {
-    let Some(src) = linux_segger_udev_rules_src(dst_root) else {
-        log::info!("[jlink] No SEGGER udev rules file in {}; skipping automatic udev install", dst_root.display());
-        return Ok(());
-    };
-    linux_install_segger_udev_rules_from_src(&src)
+    match linux_segger_udev_rules_src(dst_root) {
+        Some(p) => {
+            let b = std::fs::read(&p).map_err(|e| AppError::Io(e.to_string()))?;
+            linux_install_segger_udev_rules_bytes(&b, &format!("{}", p.display()))
+        }
+        None => {
+            log::warn!(
+                "[jlink] No udev rules file under {} after extract — installing embedded fallback",
+                dst_root.display()
+            );
+            linux_install_segger_udev_rules_bytes(
+                embedded_segger_udev_rules_bytes(),
+                "embedded segger-99-jlink.rules",
+            )
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -381,34 +428,42 @@ fn app_error_is_permission_denied(e: &AppError) -> bool {
 }
 
 /// Ensure bundled udev rules are installed even when J-Link was already on disk (upgrade / skip extract).
-/// Skips work if `/etc/udev/rules.d/99-jlink.rules` already matches the bundled file.
+/// Skips work if `/etc/udev/rules.d/99-jlink.rules` already matches the desired bytes (tree or embedded).
 #[cfg(target_os = "linux")]
 fn linux_ensure_segger_udev_installed(dst_root: &Path) -> AppResult<()> {
-    let Some(src) = linux_segger_udev_rules_src(dst_root) else {
-        log::warn!(
-            "[jlink] No SEGGER udev rules file under {} — USB may require manual udev setup",
-            dst_root.display()
-        );
-        return Ok(());
+    use std::borrow::Cow;
+
+    let src = linux_segger_udev_rules_src(dst_root);
+    let desired: Cow<'static, [u8]> = match &src {
+        Some(p) => match std::fs::read(p) {
+            Ok(b) if !b.is_empty() => Cow::Owned(b),
+            _ => Cow::Borrowed(embedded_segger_udev_rules_bytes()),
+        },
+        None => Cow::Borrowed(embedded_segger_udev_rules_bytes()),
     };
 
     let dest = Path::new("/etc/udev/rules.d/99-jlink.rules");
     if dest.is_file() {
-        let same = std::fs::read(&src)
-            .ok()
-            .zip(std::fs::read(dest).ok())
-            .is_some_and(|(a, b)| a == b);
-        if same {
-            log::debug!("[jlink] udev rules already match bundled copy; skipping install");
-            return Ok(());
+        if let Ok(cur) = std::fs::read(dest) {
+            if cur == desired.as_ref() {
+                log::debug!("[jlink] udev rules already match desired copy; skipping install");
+                return Ok(());
+            }
         }
     }
 
-    match linux_install_segger_udev_rules_from_src(&src) {
+    match linux_install_segger_udev_rules_bytes(desired.as_ref(), "ensure") {
         Ok(()) => Ok(()),
         Err(e) if app_error_is_permission_denied(&e) => {
             log::info!("[jlink] udev install needs elevation — requesting pkexec");
-            elevate_udev_install_with_pkexec(&src)
+            let tmp = std::env::temp_dir().join(format!(
+                "winusb-switcher-lite-udev-{}.rules",
+                std::process::id()
+            ));
+            std::fs::write(&tmp, desired.as_ref()).map_err(|e| AppError::Io(e.to_string()))?;
+            let r = elevate_udev_install_with_pkexec(&tmp);
+            let _ = std::fs::remove_file(&tmp);
+            r
         }
         Err(e) => Err(e),
     }

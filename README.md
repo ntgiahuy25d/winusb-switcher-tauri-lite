@@ -30,9 +30,9 @@ Release **installers** are built per OS; each artifact contains **only** the J-L
 3. Commit and push to `main`, then tag and push:
    ```bash
    git checkout main && git pull
-   git tag v1.0.5
+   git tag v1.0.6
    git push origin main
-   git push origin v1.0.5
+   git push origin v1.0.6
    ```
 4. Wait for **Build WinUSB Switcher Lite** → **release**; open the **Releases** tab for assets.
 
@@ -212,7 +212,9 @@ Workflows live under [`.github/workflows/`](.github/workflows/). Checkout uses *
 - **“J-Link not found” after bootstrap** — Ensure staging ran (use `yarn tauri:dev` / `yarn tauri:build`), and on Linux that `JLinkExe` exists under `/opt/SEGGER` (flat) or `/opt/SEGGER/JLink_V930a` (nested zip) and is executable.
 - **Linux can’t see probes / permission denied opening USB device** — The app installs SEGGER’s **`99-jlink.rules`** (from the bundled tree under `/opt/SEGGER`, including `ETC/udev/rules.d/` layouts) **on each startup** if the file is missing or differs from the bundle. The first install may use **`pkexec`** when `/etc` is not writable. If you upgraded from a build that skipped udev when `/opt` was already populated, open the app once and approve the prompt, or install rules manually below.
 
-- **Linux: no `99-jlink.rules` after upgrading** — Releases before this behavior only installed udev during *first-time* extraction. If `JLinkExe` was already under `/opt/SEGGER`, udev was never copied. **v1.0.5+** re-checks on every launch; alternatively copy rules manually:
+- **Linux: no `99-jlink.rules` on first install** — Some bundled J-Link zips **do not ship** `99-jlink.rules` at all. Older code treated that as “success” and skipped `/etc/udev`. **v1.0.6+** installs **`src-tauri/resources/segger-99-jlink.rules`** (embedded in the binary) whenever the extracted tree has no rules file, and searches the tree recursively for `*jlink*.rules`.
+
+- **Linux: no `99-jlink.rules` after upgrading** — If `JLinkExe` was already under `/opt/SEGGER`, an older build could skip udev. Current builds **re-check on every launch**; alternatively copy rules manually:
 
 ```bash
 # Example (adjust if your system uses a different file name/path)
