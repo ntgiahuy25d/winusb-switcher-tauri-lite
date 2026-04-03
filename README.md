@@ -30,11 +30,13 @@ Release **installers** are built per OS; each artifact contains **only** the J-L
 3. Commit and push to `main`, then tag and push:
    ```bash
    git checkout main && git pull
-   git tag v1.0.6
+   git tag v1.0.7
    git push origin main
-   git push origin v1.0.6
+   git push origin v1.0.7
    ```
 4. Wait for **Build WinUSB Switcher Lite** → **release**; open the **Releases** tab for assets.
+
+   **Dual mirrors:** If you maintain the same app in two GitHub repos, repeat **`git push <remote> main`**, **`git push <remote> v1.0.7`**, and **`git lfs push <remote> main`** for the second remote after the tag exists locally (see [Mirroring](#mirroring)).
 
 **Repo settings:** **Settings → Actions → General → Workflow permissions → Read and write** so the release job can upload assets.
 
@@ -180,6 +182,8 @@ yarn install
 yarn tauri:dev    # full app (runs staging script, then Vite + Rust)
 ```
 
+- **`npm run stage-jlink`** / **`yarn stage-jlink`** — run from the repo root if you invoke **`cargo`** / **`tauri`** directly without `beforeDevCommand` / `beforeBuildCommand` (creates `src-tauri/resources/jlink/.../JLink_V930a.zip` from `jlink-bundles/`).
+
 - **`yarn dev`** alone only runs Vite—Tauri IPC and J-Link commands will not work.
 - **`yarn tauri:build`** runs the frontend build, **`stage-jlink-for-build.mjs`**, then produces release binaries/installers under `src-tauri/target/release/` and `bundle/`.
 
@@ -188,7 +192,8 @@ yarn tauri:dev    # full app (runs staging script, then Vite + Rust)
 ```text
 .
 ├── scripts/
-│   └── stage-jlink-for-build.mjs   # Copies one OS/arch zip into resources/jlink for bundling
+│   ├── stage-jlink-for-build.mjs   # Copies one OS/arch zip into resources/jlink for bundling
+│   └── push-testing-remote.sh       # Optional: push main + LFS to a second remote (no tags)
 ├── src/renderer/                   # React UI
 ├── src/shared/types.ts             # IPC command names
 └── src-tauri/
@@ -207,6 +212,24 @@ Workflows live under [`.github/workflows/`](.github/workflows/). Checkout uses *
 
 To push **`main`** (no tags) to a **second remote** (e.g. another GitHub account for testing / fresh LFS quota): add the remote, authenticate as that user, then run **`yarn push:testing`** (see [`scripts/push-testing-remote.sh`](scripts/push-testing-remote.sh)).
 
+### Mirroring
+
+Maintainers may keep **`main`** and **`v*`** tags aligned across:
+
+- `git@github.com:ntgiahuy25d/winusb-switcher-tauri-lite.git`
+- `git@github.com:bigzerro12/winusb-switcher-tauri-lite.git`
+
+Use a separate **`git remote`** per account (SSH recommended). After tagging a release:
+
+```bash
+git push origin main && git push origin v1.0.7
+git lfs push origin main
+git push other main && git push other v1.0.7
+git lfs push other main
+```
+
+Replace **`other`** with your second remote name. Each push must authenticate as a user with **write** access to that repo.
+
 **GitHub Actions fails at checkout with “exceeded its LFS budget”** — That message comes from **GitHub’s Git LFS quota** (storage + bandwidth), not from the app. Anyone cloning with LFS (including `actions/checkout` with `lfs: true`) must be able to download the `JLink_V930a.zip` objects tracked in [`.gitattributes`](.gitattributes).
 
 What you can do:
@@ -221,11 +244,11 @@ What you can do:
 
 - **Invalid zip / EOCD / LFS pointer** — Install Git LFS, `git lfs pull`, rebuild.
 - **CI: `This repository exceeded its LFS budget`** — See **[CI/CD](#cicd)** above; increase LFS quota or migrate bundles off LFS.
-- **Linux permission denied under `/opt`** — On first run, Lite installs the bundled J-Link under `/opt/SEGGER`. If `/opt` is not writable, you’ll be prompted **once** via **pkexec** to complete extraction + permission fixups.
+- **Linux permission denied under `/opt`** — On first run, Lite installs the bundled J-Link under `/opt/SEGGER`. If `/opt` is not writable, you’ll be prompted **once** via **pkexec** to complete extraction + permission fixups. **Canceling that dialog** fails setup and shows the same **Try again** screen as when udev **pkexec** is dismissed (**v1.0.7+**).
 - **“J-Link not found” after bootstrap** — Ensure staging ran (use `yarn tauri:dev` / `yarn tauri:build`), and on Linux that `JLinkExe` exists under `/opt/SEGGER` (flat) or `/opt/SEGGER/JLink_V930a` (nested zip) and is executable.
-- **Linux can’t see probes / permission denied opening USB device** — The app installs SEGGER’s **`99-jlink.rules`** (from the bundled tree under `/opt/SEGGER`, including `ETC/udev/rules.d/` layouts) **on each startup** if the file is missing or differs from the bundle. The first install may use **`pkexec`** when `/etc` is not writable. If you upgraded from a build that skipped udev when `/opt` was already populated, open the app once and approve the prompt, or install rules manually below.
+- **Linux can’t see probes / permission denied opening USB device** — The app installs SEGGER’s **`99-jlink.rules`** (from the bundled tree under `/opt/SEGGER`, including `ETC/udev/rules.d/` layouts) **on each startup** if the file is missing or differs from the bundle. The first install may use **`pkexec`** when `/etc` is not writable. Dismissing that prompt leaves setup incomplete (**Try again** in **v1.0.7+**). If you upgraded from a build that skipped udev when `/opt` was already populated, open the app once and approve the prompt, or install rules manually below.
 
-- **Linux: no `99-jlink.rules` on first install** — Some bundled J-Link zips **do not ship** `99-jlink.rules` at all. Older code treated that as “success” and skipped `/etc/udev`. **v1.0.6+** installs **`src-tauri/resources/segger-99-jlink.rules`** (embedded in the binary) whenever the extracted tree has no rules file, and searches the tree recursively for `*jlink*.rules`.
+- **Linux: no `99-jlink.rules` on first install** — Some bundled J-Link zips **do not ship** `99-jlink.rules` at all. Older code treated that as “success” and skipped `/etc/udev`. **v1.0.6+** installs **`src-tauri/resources/segger-99-jlink.rules`** (embedded in the binary) whenever the extracted tree has no rules file, and searches the tree recursively for `*jlink*.rules`. (Bootstrap **v1.0.7+** also fails clearly if the udev **pkexec** step is canceled.)
 
 - **Linux: no `99-jlink.rules` after upgrading** — If `JLinkExe` was already under `/opt/SEGGER`, an older build could skip udev. Current builds **re-check on every launch**; alternatively copy rules manually:
 
